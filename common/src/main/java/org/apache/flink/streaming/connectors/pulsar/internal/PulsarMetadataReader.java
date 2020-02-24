@@ -178,34 +178,34 @@ public class PulsarMetadataReader implements AutoCloseable {
         SchemaUtils.uploadPulsarSchema(admin, topicName, schemaInfo);
     }
 
-    public void setupCursor(Map<String, MessageId> offset, boolean failOnDataLoss) {
+    public void setupCursor(Map<TopicRange, MessageId> offset, boolean failOnDataLoss) {
         // if failOnDataLoss is false, we could continue, and re-create the sub.
         if (!useExternalSubscription || !failOnDataLoss) {
-            for (Map.Entry<String, MessageId> entry : offset.entrySet()) {
+            for (Map.Entry<TopicRange, MessageId> entry : offset.entrySet()) {
                 try {
                     log.info("Setting up subscription {} on topic {} at position {}", subscriptionName, entry.getKey(), entry.getValue());
-                    admin.topics().createSubscription(entry.getKey(), subscriptionName, entry.getValue());
+                    admin.topics().createSubscription(entry.getKey().getTopic(), subscriptionNameFrom(entry.getKey()), entry.getValue());
                     log.info("Subscription {} on topic {} at position {} finished", subscriptionName, entry.getKey(), entry.getValue());
                 } catch (PulsarAdminException.ConflictException e) {
                     log.info("Subscription {} on topic {} already exists", subscriptionName, entry.getKey());
                 } catch (PulsarAdminException e) {
                     throw new RuntimeException(
-                            String.format("Failed to set up cursor for %s ", TopicName.get(entry.getKey()).toString()), e);
+                            String.format("Failed to set up cursor for %s ", entry.getKey().toString()), e);
                 }
             }
         }
     }
 
-    public void setupCursor(Map<String, MessageId> offset) {
+    public void setupCursor(Map<TopicRange, MessageId> offset) {
         setupCursor(offset, true);
     }
 
-    public void commitCursorToOffset(Map<String, MessageId> offset) {
-        for (Map.Entry<String, MessageId> entry : offset.entrySet()) {
-            String tp = entry.getKey();
+    public void commitCursorToOffset(Map<TopicRange, MessageId> offset) {
+        for (Map.Entry<TopicRange, MessageId> entry : offset.entrySet()) {
+            TopicRange tp = entry.getKey();
             try {
                 log.info("Committing offset {} to topic {}", entry.getValue(), tp);
-                admin.topics().resetCursor(tp, subscriptionName, entry.getValue());
+                admin.topics().resetCursor(tp.getTopic(), subscriptionNameFrom(tp), entry.getValue());
                 log.info("Successfully committed offset {} to topic {}", entry.getValue(), tp);
             } catch (Throwable e) {
                 if (e instanceof PulsarAdminException &&
@@ -220,23 +220,27 @@ public class PulsarMetadataReader implements AutoCloseable {
         }
     }
 
-    public void removeCursor(Set<String> topics) {
+    public void removeCursor(Set<TopicRange> topics) {
         if (!useExternalSubscription) {
-            for (String topic : topics) {
+            for (TopicRange tr : topics) {
                 try {
-                    log.info("Removing subscription {} from topic {}", subscriptionName, topic);
-                    admin.topics().deleteSubscription(topic, subscriptionName);
-                    log.info("Successfully removed subscription {} from topic {}", subscriptionName, topic);
+                    log.info("Removing subscription {} from topic {}", subscriptionName, tr.getTopic());
+                    admin.topics().deleteSubscription(tr.getTopic(), subscriptionNameFrom(tr));
+                    log.info("Successfully removed subscription {} from topic {}", subscriptionName, tr.getTopic());
                 } catch (Throwable e) {
                     if (e instanceof PulsarAdminException && ((PulsarAdminException) e).getStatusCode() == 404) {
-                        log.info("Cannot remove cursor since the topic {} has been deleted during execution", topic);
+                        log.info("Cannot remove cursor since the topic {} has been deleted during execution", tr.getTopic());
                     } else {
                         throw new RuntimeException(
-                                String.format("Failed to remove cursor for %s", topic), e);
+                                String.format("Failed to remove cursor for %s", tr.toString()), e);
                     }
                 }
             }
         }
+    }
+
+    private String subscriptionNameFrom(TopicRange topicRange) {
+        return topicRange.isFullRange() ? subscriptionName : subscriptionName + topicRange.getPulsarRange();
     }
 
     public MessageId getPositionFromSubscription(String topic, MessageId defaultPosition) {

@@ -20,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.ReaderBuilder;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
 import org.apache.pulsar.common.schema.SchemaInfo;
@@ -53,14 +54,17 @@ public class RowReaderThread extends ReaderThread<Row> {
 
     @Override
     protected void createActualReader() throws PulsarClientException, ExecutionException {
-        reader = CachedPulsarClient
+        final ReaderBuilder<?> readerBuilder = CachedPulsarClient
                 .getOrCreate(clientConf)
                 .newReader(schema)
-                .topic(topic)
+                .topic(topicRange.getTopic())
                 .startMessageId(startMessageId)
                 .startMessageIdInclusive()
-                .loadConf(readerConf)
-                .create();
+                .loadConf(readerConf);
+        if (!topicRange.isFullRange()) {
+            readerBuilder.keyHashRange(topicRange.getPulsarRange());
+        }
+        reader = readerBuilder.create();
     }
 
     @Override

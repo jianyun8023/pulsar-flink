@@ -76,7 +76,7 @@ public class PulsarFetcherTest extends TestLogger {
                 null);
 
         synchronized (sourceContext.getCheckpointLock()) {
-            Map<String, MessageId> current = fetcher.snapshotCurrentState();
+            Map<TopicRange, MessageId> current = fetcher.snapshotCurrentState();
             fetcher.commitOffsetToPulsar(current, new PulsarCommitCallback() {
                 @Override
                 public void onSuccess() {
@@ -423,7 +423,7 @@ public class PulsarFetcherTest extends TestLogger {
 
         private final OneShotLatch fetchLoopWaitLatch;
         private final OneShotLatch stateIterationBlockLatch;
-        Optional<Map<String, MessageId>> lastCommittedOffsets = Optional.empty();
+        Optional<Map<TopicRange, MessageId>> lastCommittedOffsets = Optional.empty();
 
         public TestFetcher(
                 SourceFunction.SourceContext<T> sourceContext,
@@ -472,7 +472,7 @@ public class PulsarFetcherTest extends TestLogger {
 
         @Override
         public void doCommitOffsetToPulsar(
-                Map<String, MessageId> offset,
+                Map<TopicRange, MessageId> offset,
                 PulsarCommitCallback offsetCommitCallback) {
 
             lastCommittedOffsets = Optional.of(offset);

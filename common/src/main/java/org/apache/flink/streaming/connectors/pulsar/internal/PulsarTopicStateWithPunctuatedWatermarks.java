@@ -17,6 +17,8 @@ package org.apache.flink.streaming.connectors.pulsar.internal;
 import org.apache.flink.streaming.api.functions.AssignerWithPunctuatedWatermarks;
 import org.apache.flink.streaming.api.watermark.Watermark;
 
+import org.apache.pulsar.shade.com.google.common.base.MoreObjects;
+
 import javax.annotation.Nullable;
 
 /**
@@ -60,10 +62,10 @@ public class PulsarTopicStateWithPunctuatedWatermarks<T> extends PulsarTopicStat
 
     @Override
     public String toString() {
-        return String.format("%s: %s, offset = %s, watermark = %d",
-                getClass().getName(),
-                getTopic(),
-                getOffset(),
-                partitionWatermark);
+        return MoreObjects.toStringHelper(this)
+                .add("topic-range", getTopicRange())
+                .add("offset", isOffsetDefined() ? getOffset().toString() : "not set")
+                .add("watermark", partitionWatermark)
+                .toString();
     }
 }

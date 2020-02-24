@@ -17,6 +17,8 @@ package org.apache.flink.streaming.connectors.pulsar.internal;
 import org.apache.flink.streaming.api.functions.AssignerWithPeriodicWatermarks;
 import org.apache.flink.streaming.api.watermark.Watermark;
 
+import org.apache.flink.shaded.guava18.com.google.common.base.MoreObjects;
+
 /**
  * A special version of the per-pulsar-partition-state that additionally holds
  * a periodic watermark generator (and timestamp extractor) per partition.
@@ -50,10 +52,10 @@ public class PulsarTopicStateWithPeriodicWatermarks<T> extends PulsarTopicState 
 
     @Override
     public String toString() {
-        return String.format("%s: %s, offset = %s, watermark = %d",
-                getClass().getName(),
-                getTopic(),
-                getOffset(),
-                partitionWatermark);
+        return MoreObjects.toStringHelper(this)
+                .add("topic-range", getTopicRange())
+                .add("offset", isOffsetDefined() ? getOffset().toString() : "not set")
+                .add("watermark", partitionWatermark)
+                .toString();
     }
 }

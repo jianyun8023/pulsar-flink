@@ -15,7 +15,6 @@
 package org.apache.flink.streaming.connectors.pulsar;
 
 import org.apache.flink.api.common.ExecutionConfig;
-import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.OperatorStateStore;
@@ -42,6 +41,7 @@ import org.apache.flink.streaming.connectors.pulsar.internal.PulsarFetcher;
 import org.apache.flink.streaming.connectors.pulsar.internal.PulsarMetadataReader;
 import org.apache.flink.streaming.connectors.pulsar.internal.PulsarOptions;
 import org.apache.flink.streaming.connectors.pulsar.internal.SourceSinkUtils;
+import org.apache.flink.streaming.connectors.pulsar.internal.TopicRange;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.SerializedValue;
@@ -715,7 +715,7 @@ public class FlinkPulsarSource<T>
                 return;
             }
 
-            Map<String, MessageId> offset = (Map<String, MessageId>) pendingOffsetsToCommit.remove(posInMap);
+            Map<TopicRange, MessageId> offset = (Map<TopicRange, MessageId>) pendingOffsetsToCommit.remove(posInMap);
 
             // remove older checkpoints in map
             for (int i = 0; i < posInMap; i++) {
