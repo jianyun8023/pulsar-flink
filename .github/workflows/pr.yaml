@@ -37,8 +37,16 @@ jobs:
         uses: aahmed-se/setup-maven@v3
         with:
           maven-version: 3.6.1
-      - name: run precommit script
-        run: ./build/retry.sh `pwd`/precommit.sh scala-2.11
+      - name: Check code style and bugs
+        run: |
+          ./tools/retry.sh mvn -B -ntp -q -pl pulsar-flink-1.9 clean license:check checkstyle:check spotbugs:check -Pscala-2.12
+          ./tools/retry.sh mvn -B -ntp -q -pl pulsar-flink-1.11 clean license:check checkstyle:check spotbugs:check -Pscala-2.12
+      - name: Run test
+        run: |
+          ./tools/retry.sh mvn -B -ntp -q -pl pulsar-flink-1.9 clean test -Pscala-2.11
+          cat pulsar-flink-1.9/target/surefire-reports/*.txt
+          ./tools/retry.sh mvn -B -ntp -q -pl pulsar-flink-1.11 clean test -Pscala-2.11
+          cat pulsar-flink-1.11/target/surefire-reports/*.txt
 
   unit-tests-scala-2_12:
     runs-on: ubuntu-latest
@@ -57,6 +65,13 @@ jobs:
         uses: aahmed-se/setup-maven@v3
         with:
           maven-version: 3.6.1
-
-      - name: run precommit script
-        run: ./build/retry.sh `pwd`/precommit.sh scala-2.12
+      - name: Check code style and bugs
+        run: |
+          ./tools/retry.sh mvn -B -ntp -q -pl pulsar-flink-1.9 clean license:check checkstyle:check spotbugs:check -Pscala-2.12
+          ./tools/retry.sh mvn -B -ntp -q -pl pulsar-flink-1.11 clean license:check checkstyle:check spotbugs:check -Pscala-2.12
+      - name: Run test
+        run: |
+          ./tools/retry.sh mvn -B -ntp -q -pl pulsar-flink-1.9 clean test -Pscala-2.12
+          cat pulsar-flink-1.9/target/surefire-reports/*.txt
+          ./tools/retry.sh mvn -B -ntp -q -pl pulsar-flink-1.11 clean test -Pscala-2.12
+          cat pulsar-flink-1.11/target/surefire-reports/*.txt
