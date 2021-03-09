@@ -14,15 +14,21 @@
 
 package org.apache.flink.streaming.connectors.pulsar;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.OperatorStateStore;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.api.java.ClosureCleaner;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
+import org.apache.flink.api.java.typeutils.runtime.TupleSerializer;
+import org.apache.flink.api.java.typeutils.runtime.kryo.KryoSerializer;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.runtime.state.CheckpointListener;
@@ -41,8 +47,10 @@ import org.apache.flink.streaming.connectors.pulsar.internal.PulsarDeserializati
 import org.apache.flink.streaming.connectors.pulsar.internal.PulsarFetcher;
 import org.apache.flink.streaming.connectors.pulsar.internal.PulsarMetadataReader;
 import org.apache.flink.streaming.connectors.pulsar.internal.PulsarOptions;
+import org.apache.flink.streaming.connectors.pulsar.internal.SerializableRange;
 import org.apache.flink.streaming.connectors.pulsar.internal.SourceSinkUtils;
 import org.apache.flink.streaming.connectors.pulsar.internal.TopicRange;
+import org.apache.flink.streaming.connectors.pulsar.internal.TopicSubscription;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.SerializedValue;
@@ -57,7 +65,10 @@ import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
 import org.apache.pulsar.shade.com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -88,6 +99,8 @@ public class FlinkPulsarSource<T>
 
     /** State name of the consumer's partition offset states. */
     private static final String OFFSETS_STATE_NAME = "topic-partition-offset-states";
+
+    private static final String NEW_OFFSETS_STATE_NAME = "new-topic-partition-offset-states";
 
     // ------------------------------------------------------------------------
     //  configuration state, set on the client relevant for all subtasks
@@ -170,8 +183,7 @@ public class FlinkPulsarSource<T>
     private transient volatile TreeMap<TopicRange, MessageId> restoredState;
 
     /** Accessor for state in the operator state backend. */
-
-    private transient ListState<Tuple3<TopicRange, MessageId, String>> unionOffsetStates;
+    private transient ListState<Tuple2<TopicSubscription, MessageId>> unionOffsetStates;
 
     private volatile boolean stateSubEqualexternalSub = false;
 
@@ -634,29 +646,106 @@ public class FlinkPulsarSource<T>
     public void initializeState(FunctionInitializationContext context) throws Exception {
         OperatorStateStore stateStore = context.getOperatorStateStore();
 
-        unionOffsetStates = stateStore.getUnionListState(
-                new ListStateDescriptor<>(
-                        OFFSETS_STATE_NAME,
-                        TypeInformation.of(new TypeHint<Tuple3<TopicRange, MessageId, String>>() {
-                        })));
+        log.warn("migrationState begin");
+        try {
+            unionOffsetStates = stateStore.getUnionListState(
+                    new ListStateDescriptor<>(
+                            NEW_OFFSETS_STATE_NAME,
+                            createStateSerializer(getRuntimeContext().getExecutionConfig())));
+        } catch (Exception e) {
+            log.warn("migrationState pulsar source state", e);
+            tryMigrationState(stateStore);
+        }
+        log.warn("migrationState succuess");
 
         if (context.isRestored()) {
             restoredState = new TreeMap<>();
-            unionOffsetStates.get().forEach(e -> restoredState.put(e.f0, e.f1));
-            for (Tuple3<TopicRange, MessageId, String> e : unionOffsetStates.get()) {
-                if (e.f2 != null && e.f2.equals(externalSubscriptionName)) {
-                    stateSubEqualexternalSub = true;
-                    log.info("Source restored state with subscriptionName {}", e.f2);
-                }
-                break;
-            }
+            Iterator<Tuple2<TopicSubscription, MessageId>> iterator = unionOffsetStates.get().iterator();
 
+            if (!iterator.hasNext()) {
+                iterator = tryMigrationState(stateStore);
+            }
+            while (iterator.hasNext()) {
+                final Tuple2<TopicSubscription, MessageId> tuple2 = iterator.next();
+                final TopicRange topicRange = new TopicRange(tuple2.f0.getTopic(), tuple2.f0.getRange().getPulsarRange());
+                restoredState.put(topicRange,tuple2.f1);
+                String subscriptionName = tuple2.f0.getSubscriptionName();
+                if (!stateSubEqualexternalSub && StringUtils.equals(subscriptionName, externalSubscriptionName)) {
+                    stateSubEqualexternalSub = true;
+                    log.info("Source restored state with subscriptionName {}", subscriptionName);
+                }
+            }
             log.info("Source subtask {} restored state {}",
                     taskIndex,
                     StringUtils.join(restoredState.entrySet()));
         } else {
             log.info("Source subtask {} has no restore state", taskIndex);
         }
+    }
+
+    @VisibleForTesting
+    static TupleSerializer<Tuple2<TopicSubscription, MessageId>> createStateSerializer(
+            ExecutionConfig executionConfig) {
+        // explicit serializer will keep the compatibility with GenericTypeInformation and allow to
+        // disableGenericTypes for users
+        TypeSerializer<?>[] fieldSerializers =
+                new TypeSerializer<?>[] {
+                        new KryoSerializer<>(TopicSubscription.class, executionConfig),
+                        new KryoSerializer<>(MessageId.class, executionConfig)
+        };
+        @SuppressWarnings("unchecked")
+        Class<Tuple2<TopicSubscription, MessageId>> tupleClass =
+                (Class<Tuple2<TopicSubscription, MessageId>>) (Class<?>) Tuple2.class;
+        return new TupleSerializer<>(tupleClass, fieldSerializers);
+    }
+
+    @VisibleForTesting
+    static TupleSerializer<Tuple2<String, MessageId>> createOldStateSerializer(
+            ExecutionConfig executionConfig) {
+        // explicit serializer will keep the compatibility with GenericTypeInformation and allow to
+        // disableGenericTypes for users
+        TypeSerializer<?>[] fieldSerializers =
+                new TypeSerializer<?>[] {
+                        StringSerializer.INSTANCE,
+                        new KryoSerializer<>(MessageId.class, executionConfig)
+                };
+        @SuppressWarnings("unchecked")
+        Class<Tuple2<String, MessageId>> tupleClass =
+                (Class<Tuple2<String, MessageId>>) (Class<?>) Tuple2.class;
+        return new TupleSerializer<>(tupleClass, fieldSerializers);
+    }
+
+    private Iterator<Tuple2<TopicSubscription, MessageId>> tryMigrationState(OperatorStateStore stateStore) throws Exception {
+        ListState<Tuple2<String, MessageId>> oldUnionOffsetStates = stateStore.getUnionListState(
+                new ListStateDescriptor<>(
+                        OFFSETS_STATE_NAME,
+                        createOldStateSerializer(getRuntimeContext().getExecutionConfig())));
+        ListState<String> OldUnionSubscriptionNameStates =
+                stateStore.getUnionListState(
+                        new ListStateDescriptor<>(
+                                OFFSETS_STATE_NAME + "_subName",
+                                TypeInformation.of(new TypeHint<String>() {
+                                })));
+
+        final Iterator<Tuple2<String, MessageId>> iterator = oldUnionOffsetStates.get().iterator();
+        final Iterator<String> subNameIterator = OldUnionSubscriptionNameStates.get().iterator();
+        final List<Tuple2<TopicSubscription, MessageId>> records = new ArrayList<>();
+        while (iterator.hasNext() && subNameIterator.hasNext()) {
+            final Tuple2<String, MessageId> tuple2 = iterator.next();
+            final String subName = subNameIterator.next();
+
+            final TopicSubscription topicSubscription = TopicSubscription.builder()
+                    .topic(tuple2.f0)
+                    .range(SerializableRange.ofFullRange())
+                    .subscriptionName(subName)
+                    .build();
+            final Tuple2<TopicSubscription, MessageId> record = Tuple2.of(topicSubscription, tuple2.f1);
+            log.error("migrationState {}", record);
+            records.add(record);
+        }
+        oldUnionOffsetStates.clear();
+        OldUnionSubscriptionNameStates.clear();
+        return records.listIterator();
     }
 
     @Override
@@ -672,14 +761,24 @@ public class FlinkPulsarSource<T>
                 // the fetcher has not yet been initialized, which means we need to return the
                 // originally restored offsets or the assigned partitions
                 for (Map.Entry<TopicRange, MessageId> entry : ownedTopicStarts.entrySet()) {
-                    unionOffsetStates.add(Tuple3.of(entry.getKey(), entry.getValue(), getSubscriptionName()));
+                    final TopicSubscription topicSubscription = TopicSubscription.builder()
+                            .topic(entry.getKey().getTopic())
+                            .range(entry.getKey().getRange())
+                            .subscriptionName(getSubscriptionName())
+                            .build();
+                    unionOffsetStates.add(Tuple2.of(topicSubscription, entry.getValue()));
                 }
                 pendingOffsetsToCommit.put(context.getCheckpointId(), restoredState);
             } else {
                 Map<TopicRange, MessageId> currentOffsets = fetcher.snapshotCurrentState();
                 pendingOffsetsToCommit.put(context.getCheckpointId(), currentOffsets);
                 for (Map.Entry<TopicRange, MessageId> entry : currentOffsets.entrySet()) {
-                    unionOffsetStates.add(Tuple3.of(entry.getKey(), entry.getValue(), getSubscriptionName()));
+                    final TopicSubscription topicSubscription = TopicSubscription.builder()
+                            .topic(entry.getKey().getTopic())
+                            .range(entry.getKey().getRange())
+                            .subscriptionName(getSubscriptionName())
+                            .build();
+                    unionOffsetStates.add(Tuple2.of(topicSubscription, entry.getValue()));
                 }
                 while (pendingOffsetsToCommit.size() > MAX_NUM_PENDING_CHECKPOINTS) {
                     pendingOffsetsToCommit.remove(0);
