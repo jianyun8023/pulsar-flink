@@ -18,7 +18,6 @@ import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ReadableConfig;
-import org.apache.flink.streaming.connectors.pulsar.util.DataTypeUtils;
 import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.connector.format.DecodingFormat;
 import org.apache.flink.table.connector.format.EncodingFormat;
@@ -30,13 +29,11 @@ import org.apache.flink.table.factories.DynamicTableFactory;
 import org.apache.flink.table.factories.SerializationFormatFactory;
 import org.apache.flink.table.types.AtomicDataType;
 import org.apache.flink.table.types.DataType;
-import org.apache.flink.table.types.FieldsDataType;
-
-import javax.annotation.Nullable;
 
 import java.util.Collections;
-import java.util.Optional;
 import java.util.Set;
+
+import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
  * rowDataFormatFactory for atomic type.
@@ -58,26 +55,10 @@ public class AtomicRowDataFormatFactory implements SerializationFormatFactory, D
             @Override
             public DeserializationSchema<RowData> createRuntimeDecoder(DynamicTableSource.Context context,
                                                                        DataType dataType) {
-                return new AtomicRowDataDeserializationSchema.Builder(getClassName(dataType))
-                        .useExtendFields(false)
-                        .build();
+                checkArgument(dataType instanceof AtomicDataType, "only support AtomicDataType " + dataType);
+                return new AtomicRowDataDeserializationSchema((AtomicDataType) dataType);
             }
         };
-    }
-
-    private String getClassName(@Nullable DataType dataType) {
-        String classname;
-        if (dataType instanceof AtomicDataType) {
-            Optional<Class<Object>> classOptional = DataTypeUtils.extractType(dataType);
-            classname = classOptional.map(Class::getName).orElse(null);
-        } else if (dataType instanceof FieldsDataType) {
-            final DataType type = dataType.getChildren().get(0);
-            Optional<Class<Object>> classOptional = DataTypeUtils.extractType(type);
-            classname = classOptional.map(Class::getName).orElse(null);
-        } else {
-            throw new IllegalArgumentException();
-        }
-        return classname;
     }
 
     @Override
@@ -92,9 +73,8 @@ public class AtomicRowDataFormatFactory implements SerializationFormatFactory, D
             @Override
             public SerializationSchema<RowData> createRuntimeEncoder(DynamicTableSink.Context context,
                                                                      DataType dataType) {
-                return new AtomicRowDataSerializationSchema.Builder(getClassName(dataType))
-                        .useExtendFields(false)
-                        .build();
+                checkArgument(dataType instanceof AtomicDataType, "only support AtomicDataType " + dataType);
+                return new AtomicRowDataSerializationSchema((AtomicDataType) dataType);
             }
         };
     }

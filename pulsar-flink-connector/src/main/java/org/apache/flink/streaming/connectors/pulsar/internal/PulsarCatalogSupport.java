@@ -15,7 +15,6 @@
 package org.apache.flink.streaming.connectors.pulsar.internal;
 
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.formats.atomic.AtomicRowDataFormatFactory;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.catalog.CatalogBaseTable;
 import org.apache.flink.table.catalog.CatalogTable;
@@ -113,7 +112,8 @@ public class PulsarCatalogSupport {
         final SchemaInfo schemaInfo = tableSchemaToPulsarSchema(format, schema, table.getOptions());
 
         // Writing schemaInfo#properties causes the client to fail to consume it when it is a Pulsar native type.
-        if (!StringUtils.equals(format, AtomicRowDataFormatFactory.IDENTIFIER)) {
+        // TODO Extract public variables
+        if (!StringUtils.equals(format, "atomic")) {
             schemaInfo.setProperties(extractedProperties(table));
         }
         pulsarMetadataReader.putSchema(topicName, schemaInfo);

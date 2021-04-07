@@ -1519,7 +1519,7 @@ public class FlinkPulsarITest extends PulsarTestBaseWithFlink {
         @Override
         public void open(DeserializationSchema.InitializationContext context) throws Exception {
             deserializationSchema =
-                    new AtomicRowDataDeserializationSchema(dataType.getConversionClass().getCanonicalName(), false);
+                    new AtomicRowDataDeserializationSchema(dataType);
         }
 
         @Override

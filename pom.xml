@@ -22,6 +22,7 @@
     <module>pulsar-flink-connector</module>
     <module>pulsar-flink-connector-shade-2.11</module>
     <module>pulsar-flink-connector-shade-2.12</module>
+    <module>flink-atomic-pulsar</module>
   </modules>
 
   <parent>
@@ -73,7 +74,7 @@
     <testRetryCount>2</testRetryCount>
 
     <!-- use Pulsar stable version -->
-    <pulsar.version>2.7.0</pulsar.version>
+    <pulsar.version>2.5.0</pulsar.version>
     <flink.version>1.12.1</flink.version>
     <flink.binary.version>1.12</flink.binary.version>
     <jackson.version>2.10.5.1</jackson.version>

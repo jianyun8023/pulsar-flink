@@ -41,6 +41,11 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
+      <groupId>io.streamnative.connectors</groupId>
+      <artifactId>flink-atomic-pulsar</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>commons-codec</groupId>
       <artifactId>commons-codec</artifactId>
       <version>${commons-codec.version}</version>
