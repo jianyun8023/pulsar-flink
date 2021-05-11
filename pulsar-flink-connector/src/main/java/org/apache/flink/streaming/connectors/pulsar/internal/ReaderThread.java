@@ -154,7 +154,7 @@ public class ReaderThread<T> extends Thread {
                             "start msgId:{}, last msgId:{}", reader.getTopic(), startMessageId, lastMessageId);
                 }
                 log.warn("reset message to valid offset");
-                this.owner.getMetaDataReader().resetCursor(reader.getTopic(), startMessageId);
+                this.owner.getMetaDataReader().resetCursor(this.topicRange, startMessageId);
             } else {
                 failOnDataLoss = false;
             }
